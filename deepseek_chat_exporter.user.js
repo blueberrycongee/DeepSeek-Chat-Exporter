@@ -44,51 +44,65 @@
         return thinkingNode ? `**思考链**\n${thinkingNode.textContent.trim()}` : null;
     }
 
-    function extractFinalAnswer(node) {
-        const answerNode = node.querySelector(config.finalAnswerSelector);
-        if (!answerNode) return null;
+function extractFinalAnswer(node) {
+    const answerNode = node.querySelector(config.finalAnswerSelector);
+    if (!answerNode) return null;
 
-        let answerContent = '';
+    let answerContent = '';
 
-        // 遍历ds-markdown--block中的每个p、h3、hr和数学公式
-        const elements = answerNode.querySelectorAll('.ds-markdown--block p, .ds-markdown--block h3, .katex-display.ds-markdown-math, hr');
+    // 遍历ds-markdown--block中的每个p、h3、hr和数学公式
+    const elements = answerNode.querySelectorAll('.ds-markdown--block p, .ds-markdown--block h3, .katex-display.ds-markdown-math, hr');
 
-        elements.forEach((element) => {
-            // 如果是段落<p>，遍历其中的text和数学公式
-            if (element.tagName.toLowerCase() === 'p') {
-                element.childNodes.forEach((childNode) => {
-                    if (childNode.nodeType === Node.TEXT_NODE) {
-                        answerContent += childNode.textContent.trim();  // 文本节点
-                    } else if (childNode.classList && childNode.classList.contains('katex')) {
-                        // KaTeX公式提取
-                        const tex = childNode.querySelector('annotation[encoding="application/x-tex"]');
-                        if (tex) {
-                            answerContent += `$$$${tex.textContent.trim()}$$$`; // 用$$包裹所有公式
-                        }
+    elements.forEach((element) => {
+        // 如果是段落<p>，遍历其中的text和数学公式
+        if (element.tagName.toLowerCase() === 'p') {
+            element.childNodes.forEach((childNode) => {
+                if (childNode.nodeType === Node.TEXT_NODE) {
+                    answerContent += childNode.textContent.trim();  // 文本节点
+                } else if (childNode.classList && childNode.classList.contains('katex')) {
+                    // KaTeX公式提取
+                    const tex = childNode.querySelector('annotation[encoding="application/x-tex"]');
+                    if (tex) {
+                        answerContent += `$$$${tex.textContent.trim()}$$$`; // 用$$包裹所有公式
                     }
-                });
-                answerContent += '\n\n';  // 段落结束后添加换行
-            }
-            // 如果是h3标签，处理为Markdown标题
-            else if (element.tagName.toLowerCase() === 'h3') {
-                answerContent += `### ${element.textContent.trim()}\n\n`;  // 将h3转为Markdown的三级标题
-            }
-            // 处理块级数学公式
-            else if (element.classList.contains('katex-display')) {
-                const tex = element.querySelector('annotation[encoding="application/x-tex"]');
-                if (tex) {
-                    answerContent += `$$$${tex.textContent.trim()}$$$\n\n`;  // 块级数学公式
+                } else if (childNode.tagName === 'STRONG') {
+                    // <strong>转换为Markdown加粗 (**)
+                    answerContent += `**${childNode.textContent.trim()}**`;
+                } else if (childNode.tagName === 'EM') {
+                    // <em>转换为Markdown斜体 (*)
+                    answerContent += `*${childNode.textContent.trim()}*`;
+                } else if (childNode.tagName === 'A') {
+                    // <a>转换为Markdown链接 [text](url)
+                    const href = childNode.getAttribute('href');
+                    answerContent += `[${childNode.textContent.trim()}](${href})`;
+                } else if (childNode.nodeType === Node.ELEMENT_NODE) {
+                    // 对于其他未知标签，提取其文本
+                    answerContent += childNode.textContent.trim();
                 }
+            });
+            answerContent += '\n\n';  // 段落结束后添加换行
+        }
+        // 如果是h3标签，处理为Markdown标题
+        else if (element.tagName.toLowerCase() === 'h3') {
+            answerContent += `### ${element.textContent.trim()}\n\n`;  // 将h3转为Markdown的三级标题
+        }
+        // 处理块级数学公式
+        else if (element.classList.contains('katex-display')) {
+            const tex = element.querySelector('annotation[encoding="application/x-tex"]');
+            if (tex) {
+                answerContent += `$$${tex.textContent.trim()}$$\n\n`;  // 块级数学公式
             }
-            // 如果是<hr>标签，转换为Markdown分割线
-            else if (element.tagName.toLowerCase() === 'hr') {
-                answerContent += '\n---\n';  // 转换为Markdown分割线
-            }
-        });
+        }
+        // 如果是<hr>标签，转换为Markdown分割线
+        else if (element.tagName.toLowerCase() === 'hr') {
+            answerContent += '\n---\n';  // 转换为Markdown分割线
+        }
+    });
 
-        // 添加Markdown标题
-        return `**正式回答**\n${answerContent.trim()}`;
-    }
+    // 添加Markdown标题
+    return `**正式回答**\n${answerContent.trim()}`;
+}
+
 
 
 
