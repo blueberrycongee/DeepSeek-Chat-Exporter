@@ -1,102 +1,134 @@
 // ==UserScript==
-// @name         DeepSeek Chat Exporter (Markdown Only)
+// @name         DeepSeek Chat Exporter (Markdown Ordered)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  导出 DeepSeek 聊天记录为 Markdown 格式
+// @version      1.1
+// @description  监听并导出 DeepSeek 聊天内容为 Markdown，严格按照搜索提示、思考链、正式回答顺序
 // @author       YourName
 // @match        https://chat.deepseek.com/*
 // @grant        GM_addStyle
 // @grant        GM_download
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-// =====================
-// 获取用户消息
-// =====================
-    function getUserMessages() {
-        const chatContainer = document.querySelector('.fa81'); // 聊天记录的父级容器
+    // =====================
+    // 配置
+    // =====================
+    const config = {
+        chatContainerSelector: '.dad65929', // 聊天框容器
+        userClassPrefix: 'fa81',             // 用户消息 class 前缀
+        aiClassPrefix: 'f9bf7997',           // AI消息相关 class 前缀
+        aiReplyContainer: 'edb250b1',        // AI回复的主要容器
+        searchHintSelector: '.a6d716f5.db5991dd', // 搜索/思考时间
+        thinkingChainSelector: '.e1675d8b',  // 思考链
+        finalAnswerSelector: 'div.ds-markdown.ds-markdown--block', // 正式回答
+        exportButtonText: '导出为 Markdown',
+        exportFileName: 'DeepSeek_Chat_Export',
+    };
+
+    // ---------------------
+    // 判断是否为用户消息
+    // ---------------------
+    function isUserMessage(node) {
+        return node.classList.contains(config.userClassPrefix);
+    }
+
+    // ---------------------
+    // 判断是否为 AI 回复
+    // ---------------------
+    function isAIMessage(node) {
+        return node.classList.contains(config.aiClassPrefix);
+    }
+
+    // ---------------------
+    // 提取搜索/思考时间标签
+    // ---------------------
+    function extractSearchOrThinking(node) {
+        const hintNode = node.querySelector(config.searchHintSelector);
+        return hintNode ? `**${hintNode.textContent.trim()}**` : null;
+    }
+
+    // ---------------------
+    // 提取思考链
+    // ---------------------
+    function extractThinkingChain(node) {
+        const thinkingNode = node.querySelector(config.thinkingChainSelector);
+        return thinkingNode ? `**思考链**\n${thinkingNode.textContent.trim()}` : null;
+    }
+
+    // ---------------------
+    // 提取正式回答
+    // ---------------------
+    function extractFinalAnswer(node) {
+        const answerNode = node.querySelector(config.finalAnswerSelector);
+        return answerNode ? `**正式回答**\n${answerNode.textContent.trim()}` : null;
+    }
+
+    // ---------------------
+    // 遍历聊天框内容，提取信息
+    // ---------------------
+    function getOrderedMessages() {
+        const messages = [];
+        const chatContainer = document.querySelector(config.chatContainerSelector);
         if (!chatContainer) {
-            console.log("未找到聊天容器！");
-            return [];
+            console.error('未找到聊天容器');
+            return messages;
         }
 
-        const userMessages = [];
+        for (const node of chatContainer.children) {
+            if (isUserMessage(node)) {
+                messages.push(`**用户：**\n${node.textContent.trim()}`);
+            } else if (isAIMessage(node)) {
+                let output = '';
 
-        // 查找所有用户消息的节点
-        const userMessageNodes = chatContainer.querySelectorAll('div.fbb737a4');
+                // 查找 edb250b1（完整AI回答结构）
+                const aiReplyContainer = node.querySelector(`.${config.aiReplyContainer}`);
+                if (aiReplyContainer) {
+                    const searchHint = extractSearchOrThinking(aiReplyContainer);
+                    if (searchHint) output += `${searchHint}\n\n`;
 
-        // 遍历并提取每一条用户消息
-        userMessageNodes.forEach(node => {
-            const content = node.textContent.trim() || '[无内容]';
-            userMessages.push({ content, type: 'user' });
-        });
+                    const thinkingChain = extractThinkingChain(aiReplyContainer);
+                    if (thinkingChain) output += `${thinkingChain}\n\n`;
+                } else {
+                    // 如果 edb250b1 不存在，直接查找搜索/思考时间
+                    const searchHint = extractSearchOrThinking(node);
+                    if (searchHint) output += `${searchHint}\n\n`;
+                }
 
-        console.log("提取的用户消息：", userMessages); // 打印调试信息
-        return userMessages;
+                // 查找正式回答
+                const finalAnswer = extractFinalAnswer(node);
+                if (finalAnswer) output += `${finalAnswer}\n\n`;
+
+                if (output.trim()) {
+                    messages.push(output.trim());
+                }
+            }
+        }
+
+        console.log("按照DOM顺序提取的消息：", messages);
+        return messages;
     }
 
-
-    // =====================
-    // 获取 AI 消息
-    // =====================
-    function getAiMessages() {
-        const aiMessages = [];
-
-        // 获取 AI 回答框消息
-        const aiAnswers = Array.from(document.querySelectorAll('.f9bf7997.d7dc56a8.c05b5566')).map(msgNode => {
-            const content = msgNode.textContent.trim() || '[无内容]';
-            aiMessages.push({ content, type: 'ai_answer' }); // 标记为 AI 回答
-        });
-
-        // 获取 AI 思维链消息
-        const aiChains = Array.from(document.querySelectorAll('.ecc93a3b')).map(msgNode => {
-            const content = msgNode.textContent.trim() || '[无内容]';
-            aiMessages.push({ content, type: 'ai_chain' }); // 标记为 AI 思维链
-        });
-
-        // 获取 AI 正式回复消息
-        const aiFormalReplies = Array.from(document.querySelectorAll('.ds-markdown.ds-markdown--block')).map(msgNode => {
-            const content = msgNode.textContent.trim() || '[无内容]';
-            aiMessages.push({ content, type: 'ai_formal_reply' }); // 标记为 AI 正式回复
-        });
-
-        console.log("提取的 AI 消息：", aiMessages); // 打印调试信息
-        return aiMessages;
-    }
-
-    // =====================
-    // 导出为 Markdown 格式
-    // =====================
+    // ---------------------
+    // 生成 Markdown 内容
+    // ---------------------
     function exportMarkdown() {
-        // 每次点击导出时重新获取对话记录
-        const userMessages = getUserMessages(); // 获取用户消息
-        const aiMessages = getAiMessages();     // 获取 AI 消息
-
-        if (userMessages.length === 0 && aiMessages.length === 0) {
+        const messages = getOrderedMessages();
+        if (messages.length === 0) {
             alert("未找到聊天记录！");
             return;
         }
 
-        // 合并用户消息和 AI 消息
-        const allMessages = [...userMessages, ...aiMessages];
+        const mdContent = messages.join('\n\n---\n\n');
 
-        // 生成 Markdown 格式的对话内容
-        const mdContent = allMessages.map(msg => {
-            if (msg.type === 'user') return `**用户：**\n${msg.content}`;
-            if (msg.type === 'ai_formal_reply') return `**AI 回答：**\n${msg.content}`;
-            if (msg.type === 'ai_answer') return `**AI 思维链：**\n${msg.content}`;
-            return '';
-        }).join('\n\n---\n\n');
-
-        console.log("生成的 Markdown 内容：", mdContent); // 输出检查
+        console.log("生成的 Markdown 内容：", mdContent);
 
         const blob = new Blob([mdContent], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `DeepSeek_Chat_${Date.now()}.md`;
+        a.download = `${config.exportFileName}_${Date.now()}.md`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
