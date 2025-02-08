@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.2
 // @description  监听并导出 DeepSeek 聊天内容为 Markdown 或 PDF，严格按照搜索提示、思考链、正式回答顺序
-// @author       YourName
+// @author       HSyuf/Blueberrycongee/HQ337653
 // @match        https://chat.deepseek.com/*
 // @grant        GM_addStyle
 // @grant        GM_download
