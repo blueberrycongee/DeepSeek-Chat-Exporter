@@ -1,643 +1,351 @@
 // ==UserScript==
-// @name         DeepSeek Chat Exporter (Markdown & PDF & PNG)
+// @name         DeepSeek Chat Exporter (Markdown & PDF & PNG - English improved version)
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  监听并导出 DeepSeek 聊天内容为 Markdown 或 PDF，严格按照搜索提示、思考链、正式回答顺序
-// @author       HSyuf/Blueberrycongee/HQ337653
+// @version      1.8.5
+// @description  Export DeepSeek chat history to Markdown, PDF and PNG formats
+// @author       HSyuf/Blueberrycongee/endolith
 // @match        https://chat.deepseek.com/*
 // @grant        GM_addStyle
 // @grant        GM_download
-// @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
-// ==/UserScript==
-
-(function () {
-    'use strict';
-
-    // =====================
-    // 配置
-    // =====================
-    const config = {
-        chatContainerSelector: '.dad65929', // 聊天框容器
-        userClassPrefix: 'fa81',             // 用户消息 class 前缀
-        aiClassPrefix: 'f9bf7997',           // AI消息相关 class 前缀
-        aiReplyContainer: 'edb250b1',        // AI回复的主要容器
-        searchHintSelector: '.a6d716f5.db5991dd', // 搜索/思考时间
-        thinkingChainSelector: '.e1675d8b',  // 思考链
-        finalAnswerSelector: 'div.ds-markdown.ds-markdown--block', // 正式回答
-        exportFileName: 'DeepSeek_Chat_Export',
-    };
-
-    function isUserMessage(node) {
-        return node.classList.contains(config.userClassPrefix);
-    }
-
-    function isAIMessage(node) {
-        return node.classList.contains(config.aiClassPrefix);
-    }
-
-    function extractSearchOrThinking(node) {
-        const hintNode = node.querySelector(config.searchHintSelector);
-        return hintNode ? `**${hintNode.textContent.trim()}**` : null;
-    }
-
-    function extractThinkingChain(node) {
-        const thinkingNode = node.querySelector(config.thinkingChainSelector);
-        return thinkingNode ? `**思考链**\n${thinkingNode.textContent.trim()}` : null;
-    }
-
-function extractFinalAnswer(node) {
-    const answerNode = node.querySelector(config.finalAnswerSelector);
-    if (!answerNode) return null;
-
-    let answerContent = '';
-
-    // 遍历ds-markdown--block中的每个p、h3、hr和数学公式
-    const elements = answerNode.querySelectorAll('.ds-markdown--block p, .ds-markdown--block h3, .katex-display.ds-markdown-math, hr');
-
-    elements.forEach((element) => {
-        // 如果是段落<p>，遍历其中的text和数学公式
-        if (element.tagName.toLowerCase() === 'p') {
-            element.childNodes.forEach((childNode) => {
-                if (childNode.nodeType === Node.TEXT_NODE) {
-                    answerContent += childNode.textContent.trim();  // 文本节点
-                } else if (childNode.classList && childNode.classList.contains('katex')) {
-                    // KaTeX公式提取
-                    const tex = childNode.querySelector('annotation[encoding="application/x-tex"]');
-                    if (tex) {
-                        answerContent += `$$${tex.textContent.trim()}$$`; // 用$$包裹所有公式
-                    }
-                } else if (childNode.tagName === 'STRONG') {
-                    // <strong>转换为Markdown加粗 (**)
-                    answerContent += `**${childNode.textContent.trim()}**`;
-                } else if (childNode.tagName === 'EM') {
-                    // <em>转换为Markdown斜体 (*)
-                    answerContent += `*${childNode.textContent.trim()}*`;
-                } else if (childNode.tagName === 'A') {
-                    // <a>转换为Markdown链接 [text](url)
-                    const href = childNode.getAttribute('href');
-                    answerContent += `[${childNode.textContent.trim()}](${href})`;
-                } else if (childNode.nodeType === Node.ELEMENT_NODE) {
-                    // 对于其他未知标签，提取其文本
-                    answerContent += childNode.textContent.trim();
-                }
-            });
-            answerContent += '\n\n';  // 段落结束后添加换行
-        }
-        // 如果是h3标签，处理为Markdown标题
-        else if (element.tagName.toLowerCase() === 'h3') {
-            answerContent += `### ${element.textContent.trim()}\n\n`;  // 将h3转为Markdown的三级标题
-        }
-        // 处理块级数学公式
-        else if (element.classList.contains('katex-display')) {
-            const tex = element.querySelector('annotation[encoding="application/x-tex"]');
-            if (tex) {
-                answerContent += `$$${tex.textContent.trim()}$$\n\n`;  // 块级数学公式
-            }
-        }
-        // 如果是<hr>标签，转换为Markdown分割线
-        else if (element.tagName.toLowerCase() === 'hr') {
-            answerContent += '\n---\n';  // 转换为Markdown分割线
-        }
-    });
-
-    // 添加Markdown标题
-    return `**正式回答**\n${answerContent.trim()}`;
-}
-
-
-
-
-
-
-    function getOrderedMessages() {
-        const messages = [];
-        const chatContainer = document.querySelector(config.chatContainerSelector);
-        if (!chatContainer) {
-            console.error('未找到聊天容器');
-            return messages;
-        }
-
-        for (const node of chatContainer.children) {
-            if (isUserMessage(node)) {
-                messages.push(`**用户：**\n${node.textContent.trim()}`);
-            } else if (isAIMessage(node)) {
-                let output = '';
-                const aiReplyContainer = node.querySelector(`.${config.aiReplyContainer}`);
-                if (aiReplyContainer) {
-                    const searchHint = extractSearchOrThinking(aiReplyContainer);
-                    if (searchHint) output += `${searchHint}\n\n`;
-                    const thinkingChain = extractThinkingChain(aiReplyContainer);
-                    if (thinkingChain) output += `${thinkingChain}\n\n`;
-                } else {
-                    const searchHint = extractSearchOrThinking(node);
-                    if (searchHint) output += `${searchHint}\n\n`;
-                }
-                const finalAnswer = extractFinalAnswer(node);
-                if (finalAnswer) output += `${finalAnswer}\n\n`;
-                if (output.trim()) {
-                    messages.push(output.trim());
-                }
-            }
-        }
-        return messages;
-    }
-
-    function generateMdContent() {
-        const messages = getOrderedMessages();
-        return messages.length ? messages.join('\n\n---\n\n') : '';
-    }
-
-    function exportMarkdown() {
-        const mdContent = generateMdContent();
-        if (!mdContent) {
-            alert("未找到聊天记录！");
-            return;
-        }
-
-        // Fix for inline math and block math rendering
-        const fixedMdContent = mdContent;
-
-        const blob = new Blob([fixedMdContent], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${config.exportFileName}_${Date.now()}.md`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-    }
-
-    function exportPDF() {
-        const mdContent = generateMdContent();
-        if (!mdContent) return;
-
-        const printContent = `
-  <html>
-    <head>
-      <title>DeepSeek Chat Export</title>
-      <script type="text/javascript" async
-        src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js">
-      </script>
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
-        h2 { color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
-        h3 { color: #34495e; margin-top: 20px; }
-        .ai-answer {
-          color: #2c3e50; /* 深蓝色 */
-          margin: 15px 0;
-        }
-        .ai-chain {
-          color: #7f8c8d; /* 灰色 */
-          font-size: 0.9em; /* 字体小一号 */
-          margin: 10px 0;
-        }
-        hr { border: 0; border-top: 1px solid #eee; margin: 25px 0; }
-      </style>
-    </head>
-    <body>
-      ${mdContent
-        .replace(/\n### (.*?)\n/g, '<h3>$1</h3>\n') // 修正 Markdown 标题
-        .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")  // 解析加粗
-        .replace(/\*(.*?)\*/g, "<i>$1</i>")      // 解析斜体
-        .replace(/\n/g, '<br>')                 // 换行
-        .replace(/\$\$(.*?)\$\$/g, ' <span class="math">\\($1\\)</span> ') // 公式前后加空格
-        .replace(/---/g, '</div><hr>')}
-      <script>
-        window.onload = function() { MathJax.typeset(); };
-      </script>
-    </body>
-  </html>
-`;
-
-        const printWindow = window.open("", "_blank");
-        printWindow.document.write(printContent);
-        printWindow.document.close();
-        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-    }
-
-
-      let __exportPNGLock = false;  // 全局锁，防止重复点击
-  function exportPNG() {
-      if (__exportPNGLock) return;  // 如果当前正在导出，跳过
-      __exportPNGLock = true;
-
-      const chatContainer = document.querySelector(config.chatContainerSelector);
-      if (!chatContainer) {
-          alert("未找到聊天容器！");
-          __exportPNGLock = false;
-          return;
-      }
-
-      // 创建沙盒容器
-      const sandbox = document.createElement('iframe');
-      sandbox.style.cssText = `
-          position: fixed;
-          left: -9999px;
-          top: 0;
-          width: 800px;
-          height: ${window.innerHeight}px;
-          border: 0;
-          visibility: hidden;
-      `;
-      document.body.appendChild(sandbox);
-
-      // 深度克隆与样式处理
-      const cloneNode = chatContainer.cloneNode(true);
-      cloneNode.style.cssText = `
-          width: 800px !important;
-          transform: none !important;
-          overflow: visible !important;
-          position: static !important;
-          background: white !important;
-          max-height: none !important;
-          padding: 20px !important;
-          margin: 0 !important;
-          box-sizing: border-box !important;
-      `;
-
-      // 清理干扰元素，排除图标
-      ['button', 'input', '.ds-message-feedback-container', '.eb23581b.dfa60d66'].forEach(selector => {
-          cloneNode.querySelectorAll(selector).forEach(el => el.remove());
-      });
-
-      // 数学公式修复
-      cloneNode.querySelectorAll('.katex-display').forEach(mathEl => {
-          mathEl.style.transform = 'none !important';
-          mathEl.style.position = 'relative !important';
-      });
-
-      // 注入沙盒
-      sandbox.contentDocument.body.appendChild(cloneNode);
-      sandbox.contentDocument.body.style.background = 'white';
-
-      // 等待资源加载
-      const waitReady = () => Promise.all([document.fonts.ready, new Promise(resolve => setTimeout(resolve, 300))]);
-
-      waitReady().then(() => {
-          return html2canvas(cloneNode, {
-              scale: 2,
-              useCORS: true,
-              logging: true,
-              backgroundColor: "#FFFFFF"
-          });
-      }).then(canvas => {
-          canvas.toBlob(blob => {
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${config.exportFileName}_${Date.now()}.png`;
-              a.click();
-              setTimeout(() => {
-                  URL.revokeObjectURL(url);
-                  sandbox.remove();
-              }, 1000);
-          }, 'image/png');
-      }).catch(err => {
-          console.error('截图失败:', err);
-          alert(`导出失败：${err.message}`);
-      }).finally(() => {
-          __exportPNGLock = false;
-      });
-  }
-
-    // =====================
-  // 创建导出菜单
-  // =====================
-  function createExportMenu() {
-      const menu = document.createElement("div");
-      menu.className = "ds-exporter-menu";
-      menu.innerHTML = `
-          <button class="export-btn" id="md-btn">导出为 Markdown</button>
-          <button class="export-btn" id="pdf-btn">导出为 PDF</button>
-          <button class="export-btn" id="png-btn">导出图片</button>
-      `;
-
-      menu.querySelector("#md-btn").addEventListener("click", exportMarkdown);
-      menu.querySelector("#pdf-btn").addEventListener("click", exportPDF);
-      menu.querySelector("#png-btn").addEventListener("click", exportPNG);
-      document.body.appendChild(menu);
-  }
-
-  // =====================
-  // 样式
-  // =====================
-  GM_addStyle(`
-  .ds-exporter-menu {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 999999;
-      background: rgba(255, 255, 255, 0.95) url('data:image/svg+xml;utf8,<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40" fill="%23ff9a9e" opacity="0.2"/></svg>');
-      border: 2px solid #ff93ac;
-      border-radius: 15px;
-      box-shadow: 0 4px 20px rgba(255, 65, 108, 0.3);
-      backdrop-filter: blur(8px);
-      padding: 15px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      align-items: flex-start; /* 确保按钮左对齐 */
-  }
-
-  .export-btn {
-      background: linear-gradient(145deg, #ff7eb3 0%, #ff758c 100%);
-      color: white;
-      border: 2px solid #fff;
-      border-radius: 12px;
-      padding: 12px 24px;
-      font-family: 'Comic Sans MS', cursive;
-      font-size: 16px;
-      text-shadow: 1px 1px 2px rgba(255, 65, 108, 0.5);
-      position: relative;
-      overflow: hidden;
-      transition: all 0.3s ease;
-      cursor: pointer;
-      width: 200px; /* 定义按钮宽度 */
-      margin-bottom: 8px; /* 添加按钮之间的间距 */
-  }
-
-  .export-btn::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: linear-gradient(45deg, transparent 33%, rgba(255,255,255,0.3) 50%, transparent 66%);
-      transform: rotate(45deg);
-      animation: sparkle 3s infinite linear;
-  }
-
-  .export-btn:hover {
-      transform: scale(1.05) rotate(-2deg);
-      box-shadow: 0 6px 24px rgba(255, 65, 108, 0.4);
-      background: linear-gradient(145deg, #ff6b9d 0%, #ff677e 100%);
-  }
-
-  .export-btn:active {
-      transform: scale(0.95) rotate(2deg);
-  }
-
-  #md-btn::after {
-      content: '📁';
-      margin-left: 8px;
-      filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.2));
-  }
-
-  #pdf-btn::after {
-      content: '📄';
-      margin-left: 8px;
-  }
-
-  #png-btn::after {
-      content: '🖼️';
-      margin-left: 8px;
-  }
-
-  @keyframes sparkle {
-      0% { transform: translate(-100%, -100%) rotate(45deg); }
-      100% { transform: translate(100%, 100%) rotate(45deg); }
-  }
-
-  /* 添加卡通对话框提示 */
-  .ds-exporter-menu::before {
-      position: absolute;
-      top: -40px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: white;
-      padding: 8px 16px;
-      border-radius: 10px;
-      border: 2px solid #ff93ac;
-      font-family: 'Comic Sans MS', cursive;
-      color: #ff6b9d;
-      white-space: nowrap;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-  }
-
-  /* 添加漂浮的装饰元素 */
-  .ds-exporter-menu::after {
-      content: '';
-      position: absolute;
-      width: 30px;
-      height: 30px;
-      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23ff93ac" d="M12,2.5L15.3,8.6L22,9.7L17,14.5L18.5,21L12,17.5L5.5,21L7,14.5L2,9.7L8.7,8.6L12,2.5Z"/></svg>');
-      top: -20px;
-      right: -15px;
-      animation: float 2s ease-in-out infinite;
-  }
-
-  @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(10deg); }
-      50% { transform: translateY(-10px) rotate(-10deg); }
-  }
-`);
-
-
-
-  // =====================
-  // 初始化
-  // =====================
-  function init() {
-      const checkInterval = setInterval(() => {
-          if (document.querySelector(config.chatContainerSelector)) {
-              clearInterval(checkInterval);
-              createExportMenu();
-          }
-      }, 500);
-  }
-
-  init();
-})();
-=======
-// ==UserScript==
-// @name         DeepSeek Chat Exporter (Markdown & PDF & PNG)
-// @namespace    http://tampermonkey.net/
-// @version      1.7.1
-// @description  导出 DeepSeek 聊天记录为 Markdown、PDF 和 PNG 格式
-// @author       HSyuf/Blueberrycongee
-// @match        https://chat.deepseek.com/*
-// @grant        GM_addStyle
-// @grant        GM_download
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // @license      MIT
 // @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
-// @downloadURL https://update.greasyfork.org/scripts/525523/DeepSeek%20Chat%20Exporter%20%28Markdown%20%20PDF%20%20PNG%29.user.js
-// @updateURL https://update.greasyfork.org/scripts/525523/DeepSeek%20Chat%20Exporter%20%28Markdown%20%20PDF%20%20PNG%29.meta.js
 // ==/UserScript==
 
 (function () {
   'use strict';
 
   // =====================
-  // 配置
+  // Configuration
   // =====================
   const config = {
-      chatContainerSelector: '.dad65929', // 聊天框容器
-      userClassPrefix: 'fa81',             // 用户消息 class 前缀
-      aiClassPrefix: 'f9bf7997',           // AI消息相关 class 前缀
-      aiReplyContainer: 'edb250b1',        // AI回复的主要容器
-      searchHintSelector: '.a6d716f5.db5991dd', // 搜索/思考时间
-      thinkingChainSelector: '.e1675d8b',  // 思考链
-      finalAnswerSelector: 'div.ds-markdown.ds-markdown--block', // 正式回答
-      exportFileName: 'DeepSeek_Chat_Export',
+      chatContainerSelector: '.dad65929', // Chat container
+      userMessageSelector: '._9663006 .fbb737a4',  // Direct selector for user message content
+      aiClassPrefix: '_4f9bf79',           // AI message related class prefix
+      aiReplyContainer: '_43c05b5',        // Main container for AI replies
+      searchHintSelector: '._5255ff8._4d41763', // Search/thinking time
+      thinkingChainSelector: '.e1675d8b',  // Thinking chain
+      finalAnswerSelector: 'div.ds-markdown', // Final answer
+      titleSelector: '.afa34042.e37a04e4.e0a1edb7', // Chat title
+      // Fiber navigation paths discovered via __scanReact($0, prop)
+      // Update these when the site changes; they allow deterministic extraction
+      answerMarkdownPath: '$0.return.return.return', // memoizedProps.markdown
+      thinkingContentPath: '$0.child.child.child.return.return.return.return.return.return.return', // memoizedProps.content
+      exportFileName: 'DeepSeek',          // Changed from DeepSeek_Chat_Export
+      // Header strings used in exports
+      userHeader: 'User',
+      assistantHeader: 'Assistant',
+      thoughtsHeader: 'Thought Process',
   };
 
-  let __exportPNGLock = false;  // 全局锁，防止重复点击
+  // For future maintainers: see BREAK_FIX_GUIDE.md for step-by-step recovery
+  // when DOM classes or React fiber structure change.
+
+  // User preferences with defaults
+  const preferences = {
+      convertLatexDelimiters: GM_getValue('convertLatexDelimiters', true),
+  };
+
+  // Register menu command for toggling LaTeX delimiter conversion
+  GM_registerMenuCommand('Toggle LaTeX Delimiter Conversion', () => {
+      preferences.convertLatexDelimiters = !preferences.convertLatexDelimiters;
+      GM_setValue('convertLatexDelimiters', preferences.convertLatexDelimiters);
+      alert(`LaTeX delimiter conversion is now ${preferences.convertLatexDelimiters ? 'enabled' : 'disabled'}`);
+  });
+
+  let __exportPNGLock = false;  // Global lock to prevent duplicate clicks
 
   // =====================
-  // 工具函数
+  // Tool functions
   // =====================
-  function isUserMessage(node) {
-      return node.classList.contains(config.userClassPrefix);
+  /**
+   * Gets the message content if the node contains a user message, null otherwise
+   * @param {HTMLElement} node - The DOM node to check
+   * @returns {string|null} The user message content if found, null otherwise
+   */
+  function getUserMessage(node) {
+      const messageDiv = node.querySelector(config.userMessageSelector);
+      return messageDiv ? messageDiv.firstChild.textContent.trim() : null;
   }
 
+  /**
+   * Checks if a DOM node represents an AI message
+   * @param {HTMLElement} node - The DOM node to check
+   * @returns {boolean} True if the node is an AI message
+   */
   function isAIMessage(node) {
       return node.classList.contains(config.aiClassPrefix);
   }
 
+  /**
+   * Extracts search or thinking time information from a node
+   * @param {HTMLElement} node - The DOM node to extract from
+   * @returns {string|null} Markdown formatted search/thinking info or null if not found
+   */
   function extractSearchOrThinking(node) {
       const hintNode = node.querySelector(config.searchHintSelector);
       return hintNode ? `**${hintNode.textContent.trim()}**` : null;
   }
 
+
+  /**
+   * Navigate a React fiber from a DOM element using a path string
+   * Path format mirrors React DevTools output from __scanReact, e.g. "$0.return.child.sibling"
+   * Returns the fiber located at the end of the path, or null.
+   */
+  function navigateFiberPathFromElement(element, pathString) {
+      if (!element || !pathString) return null;
+      const fiberKey = Object.keys(element).find(k => k.startsWith('__reactFiber$'));
+      if (!fiberKey) return null;
+      let fiber = element[fiberKey];
+      // Normalize path: drop leading "$0." or "$0"
+      const cleaned = pathString.replace(/^\$0\.*/, '');
+      if (!cleaned) return fiber;
+      const steps = cleaned.split('.');
+      for (const step of steps) {
+          if (!step) continue;
+          fiber = fiber ? fiber[step] : null;
+          if (!fiber) return null;
+      }
+      return fiber;
+  }
+
+
+  /**
+   * Extracts and formats the AI's thinking chain as blockquotes
+   * @param {HTMLElement} node - The DOM node containing the thinking chain
+   * @returns {string|null} Markdown formatted thinking chain with header or null if not found
+   *
+   * CRITICAL: This function MUST extract the raw markdown from React's internal state.
+   * Converting HTML to markdown is fundamentally broken and loses formatting, LaTeX,
+   * code blocks, and other essential content. The entire purpose of this script is
+   * to get the original markdown before it's rendered to HTML.
+   */
   function extractThinkingChain(node) {
-      const thinkingNode = node.querySelector(config.thinkingChainSelector);
-      return thinkingNode ? `**思考链**\n${thinkingNode.textContent.trim()}` : null;
+      // Prefer the inner ds-markdown within the thinking container as the base
+      const markdownEl = node.querySelector('div.ds-markdown');
+      const baseEl = markdownEl || node;
+
+      const navFiber = navigateFiberPathFromElement(baseEl, config.thinkingContentPath);
+      if (!navFiber || !navFiber.memoizedProps || !navFiber.memoizedProps.content) {
+          console.error('THINKING CHAIN BROKEN: Could not find memoizedProps.content at configured path');
+          console.error('Please update config.thinkingContentPath using the BREAK_FIX_GUIDE.md');
+          alert('DeepSeek Exporter Error: Thinking chain extraction broken!\nDeepSeek may have updated their website. Check console for details.');
+          return null;
+      }
+
+      const content = navFiber.memoizedProps.content;
+      return `### ${config.thoughtsHeader}\n\n> ${content.split('\n').join('\n> ')}`;
   }
 
+  /**
+   * Extracts the final answer content from React fiber's memoizedProps
+   * @param {HTMLElement} node - The DOM node containing the answer
+   * @returns {string|null} Raw markdown content or null if not found
+   *
+   * CRITICAL: This function MUST extract the raw markdown from React's internal state.
+   * Converting HTML to markdown is fundamentally broken and loses formatting, LaTeX,
+   * code blocks, and other essential content. The entire purpose of this script is
+   * to get the original markdown before it's rendered to HTML.
+   */
   function extractFinalAnswer(node) {
-      const answerNode = node.querySelector(config.finalAnswerSelector);
-      if (!answerNode) return null;
+      // Choose ds-markdown that is NOT inside the thinking container
+      let answerNode = null;
+      const candidates = node.querySelectorAll('div.ds-markdown');
+      for (const el of candidates) {
+          if (!el.closest(config.thinkingChainSelector)) { answerNode = el; break; }
+      }
+      if (!answerNode) {
+          // Fallback to first ds-markdown
+          answerNode = node.querySelector(config.finalAnswerSelector);
+      }
+      if (!answerNode) {
+          console.debug('No answer node found');
+          return null;
+      }
 
-      let answerContent = '';
-      const elements = answerNode.querySelectorAll('.ds-markdown--block p, .ds-markdown--block h3, .katex-display.ds-markdown-math, hr');
+      const navFiber = navigateFiberPathFromElement(answerNode, config.answerMarkdownPath);
+      if (!navFiber || !navFiber.memoizedProps || !navFiber.memoizedProps.markdown) {
+          console.error('FINAL ANSWER BROKEN: Could not find memoizedProps.markdown at configured path');
+          console.error('Please update config.answerMarkdownPath using the BREAK_FIX_GUIDE.md');
+          alert('DeepSeek Exporter Error: Final answer extraction broken!\nDeepSeek may have updated their website. Check console for details.');
+          return null;
+      }
 
-      elements.forEach((element) => {
-          if (element.tagName.toLowerCase() === 'p') {
-              element.childNodes.forEach((childNode) => {
-                  if (childNode.nodeType === Node.TEXT_NODE) {
-                      answerContent += childNode.textContent.trim();
-                  } else if (childNode.classList && childNode.classList.contains('katex')) {
-                      const tex = childNode.querySelector('annotation[encoding="application/x-tex"]');
-                      if (tex) {
-                          answerContent += `$$$${tex.textContent.trim()}$$$`;
-                      }
-                  } else if (childNode.tagName === 'STRONG') {
-                      answerContent += `**${childNode.textContent.trim()}**`;
-                  } else if (childNode.tagName === 'EM') {
-                      answerContent += `*${childNode.textContent.trim()}*`;
-                  } else if (childNode.tagName === 'A') {
-                      const href = childNode.getAttribute('href');
-                      answerContent += `[${childNode.textContent.trim()}](${href})`;
-                  } else if (childNode.nodeType === Node.ELEMENT_NODE) {
-                      answerContent += childNode.textContent.trim();
-                  }
-              });
-              answerContent += '\n\n';
-          }
-          else if (element.tagName.toLowerCase() === 'h3') {
-              answerContent += `### ${element.textContent.trim()}\n\n`;
-          }
-          else if (element.classList.contains('katex-display')) {
-              const tex = element.querySelector('annotation[encoding="application/x-tex"]');
-              if (tex) {
-                  answerContent += `$$${tex.textContent.trim()}$$\n\n`;
-              }
-          }
-          else if (element.tagName.toLowerCase() === 'hr') {
-              answerContent += '\n---\n';
-          }
-      });
-
-      return `**正式回答**\n${answerContent.trim()}`;
+      return navFiber.memoizedProps.markdown;
   }
 
+  /**
+   * Collects and formats all messages in the chat in chronological order
+   * @returns {string[]} Array of markdown formatted messages
+   */
   function getOrderedMessages() {
       const messages = [];
       const chatContainer = document.querySelector(config.chatContainerSelector);
       if (!chatContainer) {
-          console.error('未找到聊天容器');
+          console.error('Chat container not found');
           return messages;
       }
 
       for (const node of chatContainer.children) {
-          if (isUserMessage(node)) {
-              messages.push(`**用户：**\n${node.textContent.trim()}`);
+          const userMessage = getUserMessage(node);
+          if (userMessage) {
+              messages.push(`## ${config.userHeader}\n\n${userMessage}`);
           } else if (isAIMessage(node)) {
               let output = '';
-              const aiReplyContainer = node.querySelector(`.${config.aiReplyContainer}`);
-              if (aiReplyContainer) {
-                  const searchHint = extractSearchOrThinking(aiReplyContainer);
-                  if (searchHint) output += `${searchHint}\n\n`;
-                  const thinkingChain = extractThinkingChain(aiReplyContainer);
+              const searchHint = extractSearchOrThinking(node);
+              if (searchHint) output += `${searchHint}\n\n`;
+
+              const thinkingChainNode = node.querySelector(config.thinkingChainSelector);
+              if (thinkingChainNode) {
+                  const thinkingChain = extractThinkingChain(thinkingChainNode);
                   if (thinkingChain) output += `${thinkingChain}\n\n`;
-              } else {
-                  const searchHint = extractSearchOrThinking(node);
-                  if (searchHint) output += `${searchHint}\n\n`;
               }
+
               const finalAnswer = extractFinalAnswer(node);
               if (finalAnswer) output += `${finalAnswer}\n\n`;
               if (output.trim()) {
-                  messages.push(output.trim());
+                  messages.push(`## ${config.assistantHeader}\n\n${output.trim()}`);
               }
           }
       }
       return messages;
   }
 
+  /**
+   * Extracts the chat title from the page
+   * @returns {string|null} The chat title if found, null otherwise
+   */
+  function getChatTitle() {
+      const titleElement = document.querySelector(config.titleSelector);
+      return titleElement ? titleElement.textContent.trim() : null;
+  }
+
+  /**
+   * Generates the complete markdown content from all messages
+   * @returns {string} Complete markdown formatted chat history
+   */
   function generateMdContent() {
       const messages = getOrderedMessages();
-      return messages.length ? messages.join('\n\n---\n\n') : '';
+      const title = getChatTitle();
+      const chatUrl = window.location.href;
+      const titleForLink = title ? title.replace(/\\/g, '\\\\').replace(/]/g, '\\]') : '';
+      let content = title && chatUrl ? `# [${titleForLink}](${chatUrl})\n\n` : title ? `# ${title}\n\n` : '';
+      content += messages.length ? messages.join('\n\n---\n\n') : '';
+
+      // Convert LaTeX formats only if enabled
+      if (preferences.convertLatexDelimiters) {
+          // Use replacement functions to properly handle newlines and whitespace
+          content = content
+              // Inline math: \( ... \) → $ ... $
+              .replace(/\\\(\s*(.*?)\s*\\\)/g, (match, group) => `$${group}$`)
+
+              // Display math: \[ ... \] → $$ ... $$
+              .replace(/\\\[([\s\S]*?)\\\]/g, (match, group) => `$$${group}$$`);
+      }
+
+      return content;
+  }
+
+  /**
+   * Creates a filename-safe version of a string
+   * @param {string} str - The string to make filename-safe
+   * @param {number} maxLength - Maximum length of the resulting string
+   * @returns {string} A filename-safe version of the input string
+   */
+  function makeFilenameSafe(str, maxLength = 50) {
+      if (!str) return '';
+      return str
+          .replace(/[^a-zA-Z0-9-_\s]/g, '') // Remove special characters
+          .replace(/\s+/g, '_')             // Replace spaces with underscores
+          .slice(0, maxLength)              // Truncate to maxLength
+          .replace(/_+$/, '')               // Remove trailing underscores
+          .trim();
+  }
+
+  /**
+   * Generates a filename-safe ISO 8601 timestamp
+   * @returns {string} Formatted timestamp YYYY-MM-DD_HH_MM_SS
+   */
+  function getFormattedTimestamp() {
+      const now = new Date();
+      return now.toISOString()
+          .replace(/[T:]/g, '_')  // Replace T and : with _
+          .replace(/\..+/, '');   // Remove milliseconds and timezone
+  }
+
+  /**
+   * Builds a shared filename base for exports using the chat title when available
+   * @returns {string} Filename base without an extension
+   */
+  function getExportFilenameBase() {
+      const title = getChatTitle();
+      const safeTitle = makeFilenameSafe(title, 30);
+      const titlePart = safeTitle ? `_${safeTitle}` : '';
+      return `${config.exportFileName}${titlePart}_${getFormattedTimestamp()}`;
   }
 
   // =====================
-  // 导出功能
+  // Export functions
   // =====================
+  /**
+   * Exports the chat history as a markdown file
+   * Handles math expressions and creates a downloadable .md file
+   */
   function exportMarkdown() {
       const mdContent = generateMdContent();
       if (!mdContent) {
-          alert("未找到聊天记录！");
+          alert("No chat history found!");
           return;
       }
 
-      const fixedMdContent = mdContent.replace(/(\*\*.*?\*\*)/g, '<strong>$1</strong>')
-          .replace(/\(\s*([^)]*)\s*\)/g, '\\($1\\)')
-          .replace(/\$\$\s*([^$]*)\s*\$\$/g, '$$$1$$');
-
-      const blob = new Blob([fixedMdContent], { type: 'text/markdown' });
+      const blob = new Blob([mdContent], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${config.exportFileName}_${Date.now()}.md`;
+      a.download = `${getExportFilenameBase()}.md`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 
+  /**
+   * Exports the chat history as a PDF
+   * Creates a styled HTML version and opens the browser's print dialog
+   */
   function exportPDF() {
       const mdContent = generateMdContent();
       if (!mdContent) return;
-
-      const fixedMdContent = mdContent.replace(/(\*\*.*?\*\*)/g, '<strong>$1</strong>')
-          .replace(/\(\s*([^)]*)\s*\)/g, '\\($1\\)')
-          .replace(/\$\$\s*([^$]*)\s*\$\$/g, '$$$1$$');
+      const documentTitle = getExportFilenameBase();
 
       const printContent = `
           <html>
               <head>
-                  <title>DeepSeek Chat Export</title>
+                  <title>${documentTitle}</title>
                   <style>
                       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
+                      h1 { font-size: 1.5em; margin-top: 0; }
+                      h1 a { color: #0066cc; text-decoration: none; }
+                      h1 a:hover { text-decoration: underline; }
                       h2 { color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+                      h3 { color: #555; margin-top: 15px; }
                       .ai-answer { color: #1a7f37; margin: 15px 0; }
-                      .ai-chain { color: #666; font-style: italic; margin: 10px 0; }
+                      .ai-chain { color: #666; font-style: italic; margin: 10px 0; padding-left: 15px; border-left: 3px solid #ddd; }
                       hr { border: 0; border-top: 1px solid #eee; margin: 25px 0; }
+                      blockquote { border-left: 3px solid #ddd; margin: 0 0 20px; padding-left: 15px; color: #666; font-style: italic; }
                   </style>
               </head>
               <body>
-                  ${fixedMdContent.replace(/\*\*用户：\*\*\n/g, '<h2>用户提问</h2><div class="user-question">')
-                      .replace(/\*\*正式回答\*\*\n/g, '</div><h2>AI 回答</h2><div class="ai-answer">')
-                      .replace(/\*\*思考链\*\*\n/g, '</div><h2>思维链</h2><div class="ai-chain">')
+                  ${mdContent.replace(/^# \[((?:[^\]\\]|\\.)*)\]\(([^)]+)\)\n\n/, (_, text, url) => {
+                      const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+                      return '<h1><a href="' + esc(url) + '">' + esc(text.replace(/\\]/g, ']')) + '</a></h1>';
+                  }).replace(new RegExp(`## ${config.userHeader}\\n\\n`, 'g'), `<h2>${config.userHeader}</h2><div class="user-question">`)
+                      .replace(new RegExp(`## ${config.assistantHeader}\\n\\n`, 'g'), `<h2>${config.assistantHeader}</h2><div class="ai-answer">`)
+                      .replace(new RegExp(`### ${config.thoughtsHeader}\\n`, 'g'), `<h3>${config.thoughtsHeader}</h3><blockquote class="ai-chain">`)
+                      .replace(/>\s/g, '') // Remove the blockquote markers for HTML
                       .replace(/\n/g, '<br>')
-                      .replace(/---/g, '</div><hr>')}
+                      .replace(/---/g, '</blockquote></div><hr>')}
               </body>
           </html>
       `;
@@ -648,18 +356,22 @@ function extractFinalAnswer(node) {
       setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
   }
 
+  /**
+   * Exports the chat history as a PNG image
+   * Creates a high-resolution screenshot of the chat content
+   */
   function exportPNG() {
-      if (__exportPNGLock) return;  // 如果当前正在导出，跳过
+      if (__exportPNGLock) return;  // Skip if currently exporting
       __exportPNGLock = true;
 
       const chatContainer = document.querySelector(config.chatContainerSelector);
       if (!chatContainer) {
-          alert("未找到聊天容器！");
+          alert("Chat container not found!");
           __exportPNGLock = false;
           return;
       }
 
-      // 创建沙盒容器
+      // Create sandbox container
       const sandbox = document.createElement('iframe');
       sandbox.style.cssText = `
           position: fixed;
@@ -672,7 +384,7 @@ function extractFinalAnswer(node) {
       `;
       document.body.appendChild(sandbox);
 
-      // 深度克隆与样式处理
+      // Deep clone and style processing
       const cloneNode = chatContainer.cloneNode(true);
       cloneNode.style.cssText = `
           width: 800px !important;
@@ -686,22 +398,22 @@ function extractFinalAnswer(node) {
           box-sizing: border-box !important;
       `;
 
-      // 清理干扰元素，排除图标
+      // Clean up interfering elements, exclude icons
       ['button', 'input', '.ds-message-feedback-container', '.eb23581b.dfa60d66'].forEach(selector => {
           cloneNode.querySelectorAll(selector).forEach(el => el.remove());
       });
 
-      // 数学公式修复
+      // Math formula fix
       cloneNode.querySelectorAll('.katex-display').forEach(mathEl => {
           mathEl.style.transform = 'none !important';
           mathEl.style.position = 'relative !important';
       });
 
-      // 注入沙盒
+      // Inject sandbox
       sandbox.contentDocument.body.appendChild(cloneNode);
       sandbox.contentDocument.body.style.background = 'white';
 
-      // 等待资源加载
+      // Wait for resources to load
       const waitReady = () => Promise.all([document.fonts.ready, new Promise(resolve => setTimeout(resolve, 300))]);
 
       waitReady().then(() => {
@@ -716,7 +428,7 @@ function extractFinalAnswer(node) {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
-              a.download = `${config.exportFileName}_${Date.now()}.png`;
+              a.download = `${getExportFilenameBase()}.png`;
               a.click();
               setTimeout(() => {
                   URL.revokeObjectURL(url);
@@ -724,151 +436,212 @@ function extractFinalAnswer(node) {
               }, 1000);
           }, 'image/png');
       }).catch(err => {
-          console.error('截图失败:', err);
-          alert(`导出失败：${err.message}`);
+          console.error('Screenshot failed:', err);
+          alert(`Export failed: ${err.message}`);
       }).finally(() => {
           __exportPNGLock = false;
       });
   }
 
   // =====================
-  // 创建导出菜单
+  // Create Export Menu
   // =====================
+  /**
+   * Creates and attaches the export menu buttons to the page
+   */
   function createExportMenu() {
+      // Create main menu
       const menu = document.createElement("div");
       menu.className = "ds-exporter-menu";
       menu.innerHTML = `
-          <button class="export-btn" id="md-btn">导出为 Markdown</button>
-          <button class="export-btn" id="pdf-btn">导出为 PDF</button>
-          <button class="export-btn" id="png-btn">导出图片</button>
+          <button class="export-btn" id="md-btn" title="Export as Markdown">➡️📝</button>
+          <button class="export-btn" id="pdf-btn" title="Print to PDF">➡️🖨️</button>
+          <button class="export-btn" id="png-btn" title="Export as Image">➡️🖼️</button>
+          <button class="settings-btn" id="settings-btn" title="Settings">⚙️</button>
       `;
 
+      // Create settings panel
+      const settingsPanel = document.createElement("div");
+      settingsPanel.className = "ds-settings-panel";
+      settingsPanel.innerHTML = `
+          <div class="ds-settings-row">
+              <label class="switch">
+                  <input type="checkbox" id="latex-toggle" ${preferences.convertLatexDelimiters ? 'checked' : ''}>
+                  <span class="slider"></span>
+              </label>
+              <span>Convert to $ LaTeX Delimiters</span>
+          </div>
+      `;
+
+      // Add event listeners
       menu.querySelector("#md-btn").addEventListener("click", exportMarkdown);
       menu.querySelector("#pdf-btn").addEventListener("click", exportPDF);
       menu.querySelector("#png-btn").addEventListener("click", exportPNG);
+
+      // Settings button toggle
+      menu.querySelector("#settings-btn").addEventListener("click", () => {
+          settingsPanel.classList.toggle("visible");
+      });
+
+      // LaTeX toggle switch
+      settingsPanel.querySelector("#latex-toggle").addEventListener("change", (e) => {
+          preferences.convertLatexDelimiters = e.target.checked;
+          GM_setValue('convertLatexDelimiters', e.target.checked);
+      });
+
+      // Close settings when clicking outside
+      document.addEventListener("click", (e) => {
+          if (!settingsPanel.contains(e.target) &&
+              !menu.querySelector("#settings-btn").contains(e.target)) {
+              settingsPanel.classList.remove("visible");
+          }
+      });
+
       document.body.appendChild(menu);
+      document.body.appendChild(settingsPanel);
   }
 
   // =====================
-  // 样式
+  // Styles
   // =====================
   GM_addStyle(`
   .ds-exporter-menu {
       position: fixed;
-      top: 20px;
-      right: 20px;
+      top: 10px;
+      right: 25px;
       z-index: 999999;
-      background: rgba(255, 255, 255, 0.95) url('data:image/svg+xml;utf8,<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40" fill="%23ff9a9e" opacity="0.2"/></svg>');
-      border: 2px solid #ff93ac;
-      border-radius: 15px;
-      box-shadow: 0 4px 20px rgba(255, 65, 108, 0.3);
-      backdrop-filter: blur(8px);
-      padding: 15px;
+      background: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 4px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      align-items: flex-start; /* 确保按钮左对齐 */
+      gap: 2px;
   }
 
   .export-btn {
-      background: linear-gradient(145deg, #ff7eb3 0%, #ff758c 100%);
-      color: white;
-      border: 2px solid #fff;
-      border-radius: 12px;
-      padding: 12px 24px;
-      font-family: 'Comic Sans MS', cursive;
-      font-size: 16px;
-      text-shadow: 1px 1px 2px rgba(255, 65, 108, 0.5);
-      position: relative;
-      overflow: hidden;
-      transition: all 0.3s ease;
+      background: #f8f9fa;
+      color: #333;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
       cursor: pointer;
-      width: 200px; /* 定义按钮宽度 */
-      margin-bottom: 8px; /* 添加按钮之间的间距 */
-  }
-
-  .export-btn::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: linear-gradient(45deg, transparent 33%, rgba(255,255,255,0.3) 50%, transparent 66%);
-      transform: rotate(45deg);
-      animation: sparkle 3s infinite linear;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s;
+      min-width: 45px;
   }
 
   .export-btn:hover {
-      transform: scale(1.05) rotate(-2deg);
-      box-shadow: 0 6px 24px rgba(255, 65, 108, 0.4);
-      background: linear-gradient(145deg, #ff6b9d 0%, #ff677e 100%);
+      background: #e9ecef;
   }
 
   .export-btn:active {
-      transform: scale(0.95) rotate(2deg);
+      background: #dee2e6;
   }
 
-  #md-btn::after {
-      content: '📁';
-      margin-left: 8px;
-      filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.2));
+  /* Settings panel styles */
+  .ds-settings-panel {
+      position: fixed;
+      top: 10px;
+      right: 95px;
+      z-index: 999998;
+      background: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 12px;
+      display: none;
+      color: #333;
+      min-width: 200px;
   }
 
-  #pdf-btn::after {
-      content: '📄';
-      margin-left: 8px;
+  .ds-settings-panel.visible {
+      display: block;
   }
 
-  #png-btn::after {
-      content: '🖼️';
-      margin-left: 8px;
-  }
-
-  @keyframes sparkle {
-      0% { transform: translate(-100%, -100%) rotate(45deg); }
-      100% { transform: translate(100%, 100%) rotate(45deg); }
-  }
-
-  /* 添加卡通对话框提示 */
-  .ds-exporter-menu::before {
-      position: absolute;
-      top: -40px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: white;
-      padding: 8px 16px;
-      border-radius: 10px;
-      border: 2px solid #ff93ac;
-      font-family: 'Comic Sans MS', cursive;
-      color: #ff6b9d;
+  .ds-settings-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 4px 0;
+      color: #333;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
       white-space: nowrap;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
   }
 
-  /* 添加漂浮的装饰元素 */
-  .ds-exporter-menu::after {
-      content: '';
+  /* Toggle switch styles */
+  .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+  }
+
+  .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+  }
+
+  .slider {
       position: absolute;
-      width: 30px;
-      height: 30px;
-      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23ff93ac" d="M12,2.5L15.3,8.6L22,9.7L17,14.5L18.5,21L12,17.5L5.5,21L7,14.5L2,9.7L8.7,8.6L12,2.5Z"/></svg>');
-      top: -20px;
-      right: -15px;
-      animation: float 2s ease-in-out infinite;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 20px;
   }
 
-  @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(10deg); }
-      50% { transform: translateY(-10px) rotate(-10deg); }
+  .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+  }
+
+  input:checked + .slider {
+      background-color: #2196F3;
+  }
+
+  input:checked + .slider:before {
+      transform: translateX(20px);
+  }
+
+  .settings-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      font-size: 16px;
+      color: #666;
+  }
+
+  .settings-btn:hover {
+      color: #333;
   }
 `);
 
-
-
   // =====================
-  // 初始化
+  // Initialize
   // =====================
+  /**
+   * Initializes the exporter by waiting for the chat container to be ready
+   * and then creating the export menu
+   */
   function init() {
       const checkInterval = setInterval(() => {
           if (document.querySelector(config.chatContainerSelector)) {

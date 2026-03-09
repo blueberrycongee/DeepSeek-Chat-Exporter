@@ -1,91 +1,113 @@
 # DeepSeek Chat Exporter (Markdown, PDF & Image)
 
-这是一个用于导出 DeepSeek 聊天记录的油猴脚本，支持将聊天记录导出为 Markdown、PDF 和 图片 格式。脚本会在 DeepSeek 聊天页面右上角添加三个导出按钮，方便用户快速保存聊天内容。
+This is a Tampermonkey/Violentmonkey script for exporting DeepSeek chat conversations in Markdown, PDF, and image formats. The script adds three export buttons to the top-right corner of the DeepSeek chat interface for quick and easy conversation saving.
+
+## English / improved version
+
+This repository now includes the maintained English/improved variant originally developed in <https://github.com/endolith/DeepSeek-Chat-Exporter>, with several modifications:
+
+- Extract original markdown for Assistant messages from React instead of incompletely translating from HTML back to markdown.  Exports are more accurate and properly formatted.
+- Add a switch for whether to convert LaTeX delimiters to $$ format or not, and fix the conversion to correctly handle cases like LaTex inside lists, nested blockquotes, etc.
+- Remove `<strong>` tags in markdown output, and use **User**/**Assistant** headers instead, with reasoning tokens in a quote block, like the website.
+- Make the interface less obtrusive and remove animations, etc.
+- Add chat title to exported files, and to filenames.
+- Use ISO 8601 timestamps for filenames instead of UNIX.
 
 ---
 
-## 功能特性
+## Features
 
-- **导出为 Markdown**：将聊天记录保存为 Markdown 文件，适合用于笔记、文档整理等场景。
-- **导出为 PDF**：将聊天记录保存为 PDF 文件，支持打印或分享。
-- **导出为 图片**：将聊天记录截图并保存为图片文件，便于查看和分享。
-- **自动分段**：根据用户提问、AI 回答和思维链自动分段，内容清晰易读。
-- **美化排版**：PDF 导出时自动优化排版，支持自定义样式。
-- **一键操作**：点击按钮即可完成导出，无需复杂操作。
-
----
-
-## 安装方法
-
-1. 确保已安装油猴脚本管理器（如 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)）。
-2. 点击以下链接安装脚本：
-   - [DeepSeek Chat Exporter 脚本安装链接](#)（请将 `#` 替换为实际脚本地址）
-3. 安装完成后，刷新 DeepSeek 聊天页面。
-4. 在页面右上角会显示三个导出按钮，表示脚本已成功运行。
+- **Export to Markdown**: Save chat history as Markdown files, perfect for notes and documentation.
+- **Export to PDF**: Save conversations as PDF files for printing or sharing.
+- **Export to Image**: Capture chat history as image files for easy viewing and sharing.
+- **Automatic Segmentation**: Automatically segments user messages, assistant responses, and thought processes for clear readability.
+- **Enhanced Layout**: Optimized formatting for PDF export with customizable styles.
+- **One-Click Operation**: Export with a single click, no complex operations needed.
 
 ---
 
-## 使用方法
+## Installation
 
-1. 打开 DeepSeek 聊天页面（`https://chat.deepseek.com/`）。
-2. 在页面右上角找到导出按钮：
-   - **导出为 Markdown**：点击后会自动下载一个 `.md` 文件。
-   - **导出为 PDF**：点击后会打开打印预览窗口，选择“保存为 PDF”即可。
-   - **导出为 图片**：点击后会将当前聊天记录截图并保存为 `.png` 图片。
-3. 导出的文件会以时间戳命名，例如 `DeepSeek_Chat_1698765432100.md`、`DeepSeek_Chat_1698765432100.pdf` 或 `DeepSeek_Chat_1698765432100.png`。
+1. Ensure you have a userscript manager installed (like [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/)).
+2. Click the following link to install the script:
+   - [DeepSeek Chat Exporter Script Installation Link](https://github.com/blueberrycongee/DeepSeek-Chat-Exporter/raw/refs/heads/main/deepseek_chat_exporter.user.js)
+3. After installation, refresh your DeepSeek chat page.
+4. Three export buttons will appear in the top-right corner, indicating successful script installation.
 
 ---
 
-## 文件格式说明
+## Usage
 
-### Markdown 文件格式
-- **用户提问**：以 `**用户：**` 开头，后接用户消息内容。
-- **AI 回答**：以 `**AI 回答：**` 开头，后接 AI 的回答内容。
-- **AI 思维链**：以 `**AI 思维链：**` 开头，后接 AI 的思维链内容。
-- 每段内容之间用 `---` 分隔。
+1. Open the DeepSeek chat page (`https://chat.deepseek.com/`).
+2. Look for the export buttons in the top-right corner:
+   - **➡️📝**: Click to download a `.md` file.
+   - **➡️🖨**: Click to open the print preview window, select "Save as PDF".
+   - **➡️🖼️**: Click to capture the current chat history as a `.png` image.
+   - **⚙️**: Click to access settings:
+     - **LaTeX Delimiter Conversion**: Toggle between keeping original `\( \)` and `\[ \]` delimiters or converting to `$ $` and `$$ $$` format
+3. Markdown and PNG exports include the chat title (if any) and timestamps in ISO 8601 format in the filename, and the PDF print window uses the same title where the browser supports it. Examples:
+   - `DeepSeek_Chat_Title_2024-03-21_15_30_45.md`
+   - `DeepSeek_Chat_Title_2024-03-21_15_30_45.pdf`
+   - `DeepSeek_Chat_Title_2024-03-21_15_30_45.png`
 
-示例：
+---
+
+## File Format Details
+
+### Markdown Format
+
+- **User Messages**: Begin with `## User`, followed by the message content.
+- **Assistant Responses**: Begin with `## Assistant`, followed by the response.
+- **Thought Process**: Begin with `### Thought Process`, followed by blockquoted reasoning process.
+- **LaTeX Math**: Either preserved in original `\( \)` and `\[ \]` format, or converted to `$ $` and `$$ $$` format based on settings
+- Sections are separated by `---`.
+
+Example:
+
 ```markdown
-**用户：**
-你好，能帮我写一段代码吗？
+## User
+
+Hello, can you help me write some code?
 
 ---
-**AI 思维链：**
-这是一个关于代码编写的请求。
 
----
-**AI 回答：**
-当然可以！请告诉我你需要编写什么代码。
+## Assistant
+
+### Thought Process
+> This is a request for code writing assistance.
+> Let me help with programming guidance.
+
+Of course! Please tell me what kind of code you need.
 ```
 
-### PDF 文件格式
-- **用户提问**：以标题“用户提问”显示，内容为普通文本。
-- **AI 回答**：以标题“AI 回答”显示，内容为绿色文本。
-- **AI 思维链**：以标题“思维链”显示，内容为灰色斜体文本。
-- 每段内容之间用分隔线隔开。
+### PDF Format
 
-### 图片格式
-- 导出的图片是聊天记录的截图，保存为 `.png` 格式。图片包括了聊天界面和所有的对话内容，适合快速分享或保存。
+- **User Messages**: Displayed with "User" heading in normal text.
+- **Assistant Responses**: Displayed with "Assistant" heading in green text.
+- **Thought Process**: Displayed with "Thought Process" heading in gray italic text, with a gray left border.
+- Sections separated by horizontal lines.
 
----
+### Image Format
 
-## 注意事项
-
-1. 确保浏览器允许弹出窗口，否则 PDF 导出功能可能无法正常使用。
-2. 如果聊天内容较长，建议使用 A4 纸张横向打印 PDF 以获得最佳效果。
-3. 图片导出功能将捕捉整个聊天记录，确保页面显示完整内容后再进行导出。
-4. 如果页面结构发生变化，可能需要更新脚本以适配新的 DOM 结构。
+- Exports as a `.png` screenshot of the chat history, including the chat interface and all conversations, ideal for quick sharing or saving.
 
 ---
 
-## 反馈与贡献
+## Important Notes
 
-如果您在使用过程中遇到问题或有改进建议，欢迎提交 Issue 或 Pull Request：
+1. Ensure your browser allows pop-ups for PDF export functionality.
+2. For long conversations, consider using landscape orientation when printing PDFs for best results.
+3. For image export, ensure the page displays all content completely before exporting.
+4. Script updates may be needed if the page structure changes to match new DOM structures.
 
 ---
 
-## 许可证
+## Feedback and Contributions
 
-本项目采用 [MIT 许可证](https://opensource.org/licenses/MIT)。
+If you encounter issues or have suggestions for improvements, please submit an Issue or Pull Request at <https://github.com/blueberrycongee/DeepSeek-Chat-Exporter>.
 
+---
 
+## License
+
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
